@@ -13,40 +13,56 @@ st.write("Central knowledge base for automated tender and RFP responses.")
 
 # ---------- PATHS ----------
 BASE_DIR = Path(__file__).parent
-DOCS_DIR = BASE_DIR / "docs"
 
-# Map of categories to Word filenames
-DOCUMENTS = {
-    "Corporate Profile": "Corporate_Profile.docx",
-    "Technical Profile": "Technical_Profile.docx",
-    "Security Profile": "Security_Profile.docx",
-    "Hardware Specifications": "Hardware_Specs.docx",
-    "Software Specifications": "Software_Specs.docx",
-    "Case Studies": "Case_Studies.docx",
+# Map of categories to their folder names in the repo
+CATEGORY_FOLDERS = {
+    "Corporate Profile": BASE_DIR / "Corporate Profile",
+    "Technical Profile": BASE_DIR / "Technical Profile",
+    "Security Profile": BASE_DIR / "Security Profile",
+    "Services And Delivery": BASE_DIR / "Services And Delivery",
 }
 
 # ---------- HELPER: READ WORD DOCUMENT ----------
 def load_docx_text(file_path: Path) -> str:
     if not file_path.exists():
-        return "❗ This document has not been added yet."
+        return "❗ This document does not exist: " + str(file_path)
     doc = Document(file_path)
     paragraphs = [p.text for p in doc.paragraphs]
-    # Join paragraphs with blank lines so it's readable
     return "\n\n".join(p for p in paragraphs if p.strip())
 
-# ---------- SIDEBAR ----------
-st.sidebar.header("📂 Document Categories")
-selected_category = st.sidebar.radio(
-    "Select a document to view:",
-    list(DOCUMENTS.keys())
+def list_docx_files(folder: Path):
+    if not folder.exists():
+        return []
+    return sorted([p for p in folder.glob("*.docx")])
+
+# ---------- SIDEBAR: CATEGORY + DOCUMENT SELECTION ----------
+st.sidebar.header("📂 Document Library")
+
+# 1) Choose category
+category = st.sidebar.selectbox(
+    "Select a category:",
+    list(CATEGORY_FOLDERS.keys())
 )
 
-# ---------- MAIN CONTENT ----------
-file_name = DOCUMENTS[selected_category]
-file_path = DOCS_DIR / file_name
+folder_path = CATEGORY_FOLDERS[category]
+doc_files = list_docx_files(folder_path)
 
-st.subheader(selected_category)
-st.caption(f"Source file: docs/{file_name}")
+if not doc_files:
+    st.warning(f"No .docx files found in folder: {folder_path.name}")
+else:
+    # 2) Choose document within that category
+    doc_display_names = [f.name for f in doc_files]
+    selected_doc_name = st.sidebar.selectbox(
+        "Select a document:",
+        doc_display_names
+    )
 
-content = load_docx_text(file_path)
-st.markdown(content)
+    selected_doc_path = folder_path / selected_doc_name
+
+    # ---------- MAIN CONTENT ----------
+    st.subheader(f"{category} → {selected_doc_name}")
+    st.caption(f"Source file: {selected_doc_path.relative_to(BASE_DIR)}")
+
+    content = load_docx_text(selected_doc_path)
+    st.markdown(content)
+
