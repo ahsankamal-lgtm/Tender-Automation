@@ -65,4 +65,3 @@ else:
 
     content = load_docx_text(selected_doc_path)
     st.markdown(content)
-
