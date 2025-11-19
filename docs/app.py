@@ -8,18 +8,35 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------- SIMPLE LOGIN ----------
+# ---------- SIMPLE & ROBUST LOGIN ----------
 def check_password():
     """Returns True if the user entered the correct credentials."""
 
+    # Read auth secrets safely to avoid KeyError
+    auth = st.secrets.get("auth", {})
+    correct_username = auth.get("username")
+    correct_password = auth.get("password")
+
+    # If secrets are missing, show a clear error instead of crashing
+    if not correct_username or not correct_password:
+        st.error(
+            "🔐 Authentication is not configured.\n\n"
+            "Please add the following to this app's **Secrets** in Streamlit Cloud:\n\n"
+            "[auth]\n"
+            'username = "YOUR_USERNAME"\n'
+            'password = "YOUR_PASSWORD"'
+        )
+        return False
+
     def password_entered():
-        """Verify username and password."""
-        if (
-            st.session_state["username"] == st.secrets["auth"]["username"]
-            and st.session_state["password"] == st.secrets["auth"]["password"]
-        ):
+        """Verify username and password, update session state."""
+        entered_username = st.session_state.get("username", "")
+        entered_password = st.session_state.get("password", "")
+
+        if entered_username == correct_username and entered_password == correct_password:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]
+            # Don't keep password in memory
+            st.session_state.pop("password", None)
         else:
             st.session_state["password_correct"] = False
 
@@ -29,7 +46,7 @@ def check_password():
         st.text_input("Password", type="password", key="password", on_change=password_entered)
         return False
 
-    # Wrong credentials
+    # If wrong credentials were entered
     if not st.session_state["password_correct"]:
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password", on_change=password_entered)
@@ -38,6 +55,7 @@ def check_password():
 
     # Correct credentials
     return True
+
 
 # ---------- STOP APP IF NOT LOGGED IN ----------
 if not check_password():
