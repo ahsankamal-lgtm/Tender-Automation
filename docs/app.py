@@ -2,6 +2,12 @@ import streamlit as st
 from pathlib import Path
 from docx import Document  # to read Word (.docx) files
 
+# ---------- BASIC PAGE SETTINGS (MUST BE FIRST STREAMLIT CALL) ----------
+st.set_page_config(
+    page_title="Wavetec Tender Library",
+    layout="wide"
+)
+
 # ---------- SIMPLE LOGIN ----------
 def check_password():
     """Returns True if the user entered the correct credentials."""
@@ -17,29 +23,27 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
+    # First run: show login form
     if "password_correct" not in st.session_state:
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password", on_change=password_entered)
         return False
 
+    # Wrong credentials
     if not st.session_state["password_correct"]:
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password", on_change=password_entered)
         st.error("❌ Incorrect username or password")
         return False
 
+    # Correct credentials
     return True
 
 # ---------- STOP APP IF NOT LOGGED IN ----------
 if not check_password():
     st.stop()
 
-# ---------- BASIC PAGE SETTINGS ----------
-st.set_page_config(
-    page_title="Wavetec Tender Library",
-    layout="wide"
-)
-
+# ---------- TITLE & INTRO ----------
 st.title("📚 Wavetec Tender Library")
 st.write("Central knowledge base for automated tender and RFP responses.")
 
