@@ -13,30 +13,26 @@ def check_password():
             and st.session_state["password"] == st.secrets["auth"]["password"]
         ):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store the password
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
-    # If first run, show login form
     if "password_correct" not in st.session_state:
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password", on_change=password_entered)
         return False
 
-    # If incorrect password entered
     if not st.session_state["password_correct"]:
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password", on_change=password_entered)
         st.error("❌ Incorrect username or password")
         return False
 
-    # If correct
     return True
 
 # ---------- STOP APP IF NOT LOGGED IN ----------
 if not check_password():
     st.stop()
-
 
 # ---------- BASIC PAGE SETTINGS ----------
 st.set_page_config(
@@ -74,7 +70,6 @@ def list_docx_files(folder: Path):
 # ---------- SIDEBAR: CATEGORY + DOCUMENT SELECTION ----------
 st.sidebar.header("📂 Document Library")
 
-# 1) Choose category
 category = st.sidebar.selectbox(
     "Select a category:",
     list(CATEGORY_FOLDERS.keys())
@@ -86,7 +81,6 @@ doc_files = list_docx_files(folder_path)
 if not doc_files:
     st.warning(f"No .docx files found in folder: {folder_path.name}")
 else:
-    # 2) Choose document within that category
     doc_display_names = [f.name for f in doc_files]
     selected_doc_name = st.sidebar.selectbox(
         "Select a document:",
@@ -95,7 +89,6 @@ else:
 
     selected_doc_path = folder_path / selected_doc_name
 
-    # ---------- MAIN CONTENT ----------
     st.subheader(f"{category} → {selected_doc_name}")
     st.caption(f"Source file: {selected_doc_path.relative_to(BASE_DIR)}")
 
