@@ -1,6 +1,9 @@
 import streamlit as st
 from pathlib import Path
 from docx import Document  # to read Word (.docx) files
+from PyPDF2 import PdfReader  # NEW: for reading PDF tenders
+import re                    # NEW: for clause regex
+import pandas as pd          # NEW: for displaying clause table
 
 # ---------- BASIC PAGE SETTINGS (MUST BE FIRST STREAMLIT CALL) ----------
 st.set_page_config(
@@ -118,11 +121,69 @@ def index_library():
     st.session_state["library_index"] = index
     return index
 
+# ---------- NEW: HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
+def extract_text_from_pdf(uploaded_file) -> str:
+    """Extract plain text from a PDF file."""
+    reader = PdfReader(uploaded_file)
+    all_text = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            all_text.append(page_text)
+    return "\n".join(all_text)
+
+def extract_text_from_docx_file(uploaded_file) -> str:
+    """Extract plain text from an uploaded DOCX file."""
+    doc = Document(uploaded_file)
+    paragraphs = [p.text for p in doc.paragraphs]
+    return "\n".join(p for p in paragraphs if p.strip())
+
+def extract_clauses_from_text(raw_text: str):
+    """
+    Extract clauses based on patterns like:
+    3.14, 3.15, 4.2.1 at the start of lines.
+
+    Returns a list of dicts:
+    [{"clause_no": "3.14", "clause_text": "..."}, ...]
+    """
+    lines = [line.strip() for line in raw_text.splitlines()]
+    clause_pattern = re.compile(r'^(\d+(?:\.\d+)*)\s+(.*)$')
+
+    clauses = []
+    current_clause = None
+
+    for line in lines:
+        if not line:
+            continue
+
+        match = clause_pattern.match(line)
+        if match:
+            # Start of a new clause
+            if current_clause:
+                clauses.append(current_clause)
+
+            clause_no = match.group(1)
+            clause_text = match.group(2).strip()
+            current_clause = {
+                "clause_no": clause_no,
+                "clause_text": clause_text
+            }
+        else:
+            # Continuation of the previous clause
+            if current_clause:
+                current_clause["clause_text"] += " " + line
+
+    # Append the last clause if present
+    if current_clause:
+        clauses.append(current_clause)
+
+    return clauses
+
 # ---------- SIDEBAR NAVIGATION ----------
 st.sidebar.header("🧭 Navigation")
 page = st.sidebar.radio(
     "Go to:",
-    ["📖 View Documents", "🧠 Prepare / Index Library"],
+    ["📖 View Documents", "🧠 Prepare / Index Library", "📄 Upload Tender & Extract Clauses"],
     index=0
 )
 
@@ -160,6 +221,68 @@ if page == "🧠 Prepare / Index Library":
                 for item in index
             ]
             st.dataframe(preview)
+
+# ---------- PAGE: UPLOAD TENDER & EXTRACT CLAUSES ----------
+elif page == "📄 Upload Tender & Extract Clauses":
+    st.subheader("📄 Upload Tender & Extract Clauses")
+
+    st.markdown(
+        """
+        Upload a tender file (PDF or Word).  
+        The app will:
+        - Extract the full text
+        - Detect clause numbers like `3.14`, `3.15`, `4.2.1` at the start of lines
+        - Build a **Tender Response Map** (clause number + clause text)
+        - Store it in `st.session_state["tender_clauses"]` for later use.
+        """
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload Tender Document",
+        type=["pdf", "docx"],
+        help="Accepted formats: PDF (.pdf) and Word (.docx)"
+    )
+
+    if uploaded_file is not None:
+        st.info(f"📁 File uploaded: **{uploaded_file.name}**")
+
+        if st.button("🔍 Extract Clauses"):
+            with st.spinner("Extracting text and detecting clauses..."):
+                # Step 1: Extract raw text
+                if uploaded_file.type == "application/pdf" or uploaded_file.name.lower().endswith(".pdf"):
+                    raw_text = extract_text_from_pdf(uploaded_file)
+                else:
+                    raw_text = extract_text_from_docx_file(uploaded_file)
+
+                if not raw_text.strip():
+                    st.error("❌ No text could be extracted from this file.")
+                else:
+                    # Step 2: Extract clauses
+                    clauses = extract_clauses_from_text(raw_text)
+
+                    if not clauses:
+                        st.warning(
+                            "⚠️ No clauses were detected. "
+                            "Check if the document uses standard numbering like '3.14', '4.2.1' at the start of lines."
+                        )
+                    else:
+                        # Save in session_state for later steps (response generation)
+                        st.session_state["tender_clauses"] = clauses
+
+                        st.success(f"✅ Extracted {len(clauses)} clauses from the tender.")
+
+                        # Show a preview table
+                        df_clauses = pd.DataFrame(clauses)
+                        st.markdown("### 📋 Tender Response Map (Preview)")
+                        st.dataframe(df_clauses, use_container_width=True)
+
+                        with st.expander("🔎 View first 5 clauses (full text)"):
+                            for row in clauses[:5]:
+                                st.markdown(f"**Clause {row['clause_no']}**")
+                                st.write(row["clause_text"])
+                                st.markdown("---")
+    else:
+        st.info("📥 Please upload a tender file to begin.")
 
 # ---------- PAGE: VIEW DOCUMENTS (EXISTING BEHAVIOUR) ----------
 elif page == "📖 View Documents":
