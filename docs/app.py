@@ -133,6 +133,34 @@ def index_library():
     st.session_state["library_index"] = index
     return index
 
+# ---------- SIMPLE RETRIEVAL: LIBRARY ENTRIES RELEVANT TO A CLAUSE ----------
+def get_relevant_library_entries(clause_text: str, top_k: int = 5):
+    """
+    Naive relevance scoring:
+    - Lowercase clause text
+    - Remove very short words
+    - Score each library entry by how many keywords it contains
+    Returns top_k entries sorted by score.
+    """
+    library_index = st.session_state.get("library_index", [])
+    if not library_index:
+        return []
+
+    # Basic keyword set from clause
+    words = re.findall(r"\w+", clause_text.lower())
+    keywords = {w for w in words if len(w) > 3}  # remove tiny words: the, and, etc.
+
+    scored = []
+    for entry in library_index:
+        text_lower = entry["text"].lower()
+        score = sum(1 for w in keywords if w in text_lower)
+        if score > 0:
+            scored.append((score, entry))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top_entries = [e for score, e in scored[:top_k]]
+    return top_entries
+
 # ---------- HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
     """Extract plain text from a PDF file using pdfplumber."""
@@ -216,7 +244,12 @@ def extract_clauses_from_text(raw_text: str):
 st.sidebar.header("🧭 Navigation")
 page = st.sidebar.radio(
     "Go to:",
-    ["📖 View Documents", "🧠 Prepare / Index Library", "📄 Upload Tender & Extract Clauses"],
+    [
+        "📖 View Documents",
+        "🧠 Prepare / Index Library",
+        "📄 Upload Tender & Extract Clauses",
+        "📝 Generate Responses",
+    ],
     index=0
 )
 
@@ -333,6 +366,112 @@ elif page == "📄 Upload Tender & Extract Clauses":
                                 st.markdown("---")
     else:
         st.info("📥 Please upload a tender file to begin.")
+
+# ---------- PAGE: 📝 GENERATE RESPONSES ----------
+elif page == "📝 Generate Responses":
+    st.subheader("📝 Generate Clause-by-Clause Responses")
+
+    st.markdown(
+        """
+        This page helps you generate Wavetec responses for each tender clause.
+
+        **Workflow:**
+        1. Make sure you have:
+           - Indexed the Wavetec library on the **"🧠 Prepare / Index Library"** page.
+           - Extracted clauses on the **"📄 Upload Tender & Extract Clauses"** page.
+        2. Select a clause from the dropdown.
+        3. The app will find the most relevant library entries (simple keyword match for now).
+        4. It will prepare a **ready-to-copy prompt** that you can paste into ChatGPT or another LLM.
+        """
+    )
+
+    tender_clauses = st.session_state.get("tender_clauses")
+    library_index = st.session_state.get("library_index")
+
+    if not tender_clauses:
+        st.warning("⚠️ No tender clauses found. Please first upload a tender and run **Extract Clauses**.")
+    elif not library_index:
+        st.warning("⚠️ Library index is empty. Please go to **🧠 Prepare / Index Library** and index your documents first.")
+    else:
+        # Build a small display list for the selectbox
+        options = []
+        for c in tender_clauses:
+            snippet = c["clause_text"][:80].replace("\n", " ")
+            options.append(f"{c['clause_no']} – {snippet}...")
+
+        selected_label = st.selectbox("Select a clause to respond to:", options)
+
+        # Find the underlying clause dict
+        selected_index = options.index(selected_label)
+        selected_clause = tender_clauses[selected_index]
+
+        st.markdown("### 📌 Selected Clause")
+        st.markdown(f"**Clause {selected_clause['clause_no']}**")
+        st.write(selected_clause["clause_text"])
+
+        # Get relevant library entries
+        with st.spinner("Finding relevant Wavetec library content..."):
+            relevant_entries = get_relevant_library_entries(selected_clause["clause_text"], top_k=5)
+
+        if not relevant_entries:
+            st.warning("No relevant library entries were found with the simple keyword search. You can still draft a response manually.")
+        else:
+            st.markdown("### 📚 Top Matching Library Entries (Preview)")
+            for i, entry in enumerate(relevant_entries, start=1):
+                st.markdown(f"**{i}. {entry['category']} – {entry['file_name']}**")
+                # Show only a small snippet
+                snippet = entry["text"][:400].replace("\n", " ")
+                st.write(snippet + "...")
+                st.markdown("---")
+
+            # Build a compiled context string
+            context_blocks = []
+            for entry in relevant_entries:
+                block = (
+                    f"Category: {entry['category']}\n"
+                    f"File: {entry['file_name']}\n"
+                    f"Content:\n{entry['text']}\n"
+                    "-------------------------\n"
+                )
+                context_blocks.append(block)
+
+            compiled_context = "\n".join(context_blocks)
+
+            # Prepare a ready-made prompt for ChatGPT (manual copy for now)
+            prompt_text = f"""You are the Wavetec RFP Response Engine.
+
+Use ONLY the library context below to answer the clause. Do NOT invent facts that are not supported by the context.
+
+Clause number: {selected_clause['clause_no']}
+Clause text:
+\"\"\"{selected_clause['clause_text']}\"\"\"
+
+Wavetec Library Context:
+\"\"\"{compiled_context}\"\"\"
+
+TASK:
+1. Write a detailed, structured, bid-winning response to this clause from Wavetec's perspective.
+2. Use a formal, government/RFP-appropriate tone.
+3. Include all relevant technical, architectural, security, delivery, and operational details you can find in the context.
+4. After the main response, add:
+
+**Gaps / Missing Information:**
+- Bullet list of items where the library does not contain enough detail.
+
+**Assumptions:**
+- Bullet list of assumptions you are making to answer this clause.
+
+Return the answer in markdown format.
+"""
+
+            st.markdown("### ✍️ Prepared Prompt (copy & paste into ChatGPT)")
+            st.text_area(
+                "Prompt for ChatGPT / LLM",
+                value=prompt_text,
+                height=400
+            )
+
+            st.info("You can copy the prompt above and paste it into ChatGPT to generate the full Wavetec response. Later we can wire this directly to the OpenAI API for one-click automation.")
 
 # ---------- PAGE: VIEW DOCUMENTS (EXISTING BEHAVIOUR) ----------
 elif page == "📖 View Documents":
