@@ -99,7 +99,7 @@ def list_docx_files(folder: Path):
         return []
     return sorted([p for p in folder.glob("*.docx")])
 
-# ---------- NEW: SIMPLE INDEXING STUB ----------
+# ---------- SIMPLE INDEXING STUB ----------
 def index_library():
     """
     Very simple in-memory indexing stub.
@@ -128,11 +128,11 @@ def index_library():
     st.session_state["library_index"] = index
     return index
 
-# ---------- NEW: HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
+# ---------- HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
     """Extract plain text from a PDF file using pdfplumber."""
     if not PDF_SUPPORT or pdfplumber is None:
-        st.error("PDF support is not available on this deployment. Please upload a .docx tender instead.")
+        st.error("PDF support is not available on this deployment. Please upload DOCX or Excel instead.")
         return ""
     all_text = []
     with pdfplumber.open(uploaded_file) as pdf:
@@ -147,6 +147,24 @@ def extract_text_from_docx_file(uploaded_file) -> str:
     doc = Document(uploaded_file)
     paragraphs = [p.text for p in doc.paragraphs]
     return "\n".join(p for p in paragraphs if p.strip())
+
+def extract_text_from_excel_file(uploaded_file) -> str:
+    """Extract text from Excel (.xlsx or .xls) by concatenating non-empty cell values."""
+    try:
+        # Read all sheets, no headers (tender text might be anywhere)
+        sheets = pd.read_excel(uploaded_file, sheet_name=None, header=None)
+    except Exception as e:
+        st.error(f"❌ Could not read Excel file: {e}")
+        return ""
+
+    parts = []
+    for sheet_name, df in sheets.items():
+        parts.append(f"Sheet: {sheet_name}")
+        for _, row in df.iterrows():
+            for cell in row:
+                if pd.notna(cell):
+                    parts.append(str(cell))
+    return "\n".join(parts)
 
 def extract_clauses_from_text(raw_text: str):
     """
@@ -249,12 +267,13 @@ elif page == "📄 Upload Tender & Extract Clauses":
     )
 
     # Allowed file types depend on whether PDF support is available
+    base_types = ["docx", "xlsx", "xls"]
     if PDF_SUPPORT:
-        allowed_types = ["pdf", "docx"]
-        st.info("📎 You can upload PDF or DOCX tenders.")
+        allowed_types = base_types + ["pdf"]
+        st.info("📎 You can upload PDF, Word (.docx), or Excel (.xlsx/.xls) tenders.")
     else:
-        allowed_types = ["docx"]
-        st.warning("⚠️ PDF support is not available on this deployment. Please upload a DOCX tender.")
+        allowed_types = base_types
+        st.warning("⚠️ PDF support is not available on this deployment. Please upload Word (.docx) or Excel (.xlsx/.xls).")
 
     uploaded_file = st.file_uploader(
         "Upload Tender Document",
@@ -267,13 +286,20 @@ elif page == "📄 Upload Tender & Extract Clauses":
 
         if st.button("🔍 Extract Clauses"):
             with st.spinner("Extracting text and detecting clauses..."):
-                # Step 1: Extract raw text
-                if uploaded_file.name.lower().endswith(".pdf"):
-                    raw_text = extract_text_from_pdf(uploaded_file)
-                else:
-                    raw_text = extract_text_from_docx_file(uploaded_file)
+                filename = uploaded_file.name.lower()
 
-                if not raw_text.strip():
+                # Step 1: Extract raw text depending on extension
+                if filename.endswith(".pdf"):
+                    raw_text = extract_text_from_pdf(uploaded_file)
+                elif filename.endswith(".docx"):
+                    raw_text = extract_text_from_docx_file(uploaded_file)
+                elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+                    raw_text = extract_text_from_excel_file(uploaded_file)
+                else:
+                    st.error("❌ Unsupported file type.")
+                    raw_text = ""
+
+                if not raw_text or not raw_text.strip():
                     st.error("❌ No text could be extracted from this file.")
                 else:
                     # Step 2: Extract clauses
