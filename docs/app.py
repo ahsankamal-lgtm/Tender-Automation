@@ -89,30 +89,103 @@ def list_docx_files(folder: Path):
         return []
     return sorted([p for p in folder.glob("*.docx")])
 
-# ---------- SIDEBAR: CATEGORY + DOCUMENT SELECTION ----------
-st.sidebar.header("📂 Document Library")
+# ---------- NEW: SIMPLE INDEXING STUB ----------
+def index_library():
+    """
+    Very simple in-memory indexing stub.
+    - Walks all category folders
+    - Reads each .docx
+    - Stores text chunks in st.session_state['library_index']
+    This is where you can later plug in embeddings / vector DB, etc.
+    """
+    index = []
+    for category, folder in CATEGORY_FOLDERS.items():
+        doc_files = list_docx_files(folder)
+        for doc_path in doc_files:
+            text = load_docx_text(doc_path)
+            if not text.strip():
+                continue
 
-category = st.sidebar.selectbox(
-    "Select a category:",
-    list(CATEGORY_FOLDERS.keys())
+            # For now, treat whole document as a single chunk.
+            # Later you can split into smaller chunks if needed.
+            index.append({
+                "category": category,
+                "file_name": doc_path.name,
+                "file_path": str(doc_path),
+                "text": text,
+            })
+
+    st.session_state["library_index"] = index
+    return index
+
+# ---------- SIDEBAR NAVIGATION ----------
+st.sidebar.header("🧭 Navigation")
+page = st.sidebar.radio(
+    "Go to:",
+    ["📖 View Documents", "🧠 Prepare / Index Library"],
+    index=0
 )
 
-folder_path = CATEGORY_FOLDERS[category]
-doc_files = list_docx_files(folder_path)
+# ---------- PAGE: PREPARE / INDEX LIBRARY ----------
+if page == "🧠 Prepare / Index Library":
+    st.subheader("🧠 Prepare / Index Wavetec Library")
 
-if not doc_files:
-    st.warning(f"No .docx files found in folder: {folder_path.name}")
-else:
-    doc_display_names = [f.name for f in doc_files]
-    selected_doc_name = st.sidebar.selectbox(
-        "Select a document:",
-        doc_display_names
+    st.markdown(
+        """
+        This page prepares your Wavetec Tender Library for automated RFP responses.
+
+        **What this button will (currently) do:**
+        - Scan all categories and `.docx` files
+        - Read their full text
+        - Build an in-memory index in `st.session_state["library_index"]`
+        - Show you how many documents were indexed
+
+        Later, this function can be extended to:
+        - Split documents into smaller chunks
+        - Generate embeddings
+        - Store them in a vector database
+        """
     )
 
-    selected_doc_path = folder_path / selected_doc_name
+    if st.button("🚀 Index / Refresh Library"):
+        with st.spinner("Indexing library..."):
+            index = index_library()
+        st.success(f"✅ Indexed {len(index)} document entries into memory.")
 
-    st.subheader(f"{category} → {selected_doc_name}")
-    st.caption(f"Source file: {selected_doc_path.relative_to(BASE_DIR)}")
+        # Optional: small preview table (file + category)
+        if index:
+            st.markdown("### 📄 Indexed Documents (Preview)")
+            preview = [
+                {"Category": item["category"], "File": item["file_name"]}
+                for item in index
+            ]
+            st.dataframe(preview)
 
-    content = load_docx_text(selected_doc_path)
-    st.markdown(content)
+# ---------- PAGE: VIEW DOCUMENTS (EXISTING BEHAVIOUR) ----------
+elif page == "📖 View Documents":
+    st.sidebar.header("📂 Document Library")
+
+    category = st.sidebar.selectbox(
+        "Select a category:",
+        list(CATEGORY_FOLDERS.keys())
+    )
+
+    folder_path = CATEGORY_FOLDERS[category]
+    doc_files = list_docx_files(folder_path)
+
+    if not doc_files:
+        st.warning(f"No .docx files found in folder: {folder_path.name}")
+    else:
+        doc_display_names = [f.name for f in doc_files]
+        selected_doc_name = st.sidebar.selectbox(
+            "Select a document:",
+            doc_display_names
+        )
+
+        selected_doc_path = folder_path / selected_doc_name
+
+        st.subheader(f"{category} → {selected_doc_name}")
+        st.caption(f"Source file: {selected_doc_path.relative_to(BASE_DIR)}")
+
+        content = load_docx_text(selected_doc_path)
+        st.markdown(content)
