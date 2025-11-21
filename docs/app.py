@@ -1,9 +1,9 @@
 import streamlit as st
 from pathlib import Path
 from docx import Document  # to read Word (.docx) files
-from PyPDF2 import PdfReader  # NEW: for reading PDF tenders
-import re                    # NEW: for clause regex
-import pandas as pd          # NEW: for displaying clause table
+import pdfplumber          # NEW: use pdfplumber for reading PDF tenders
+import re                  # clause regex
+import pandas as pd        # displaying clause table
 
 # ---------- BASIC PAGE SETTINGS (MUST BE FIRST STREAMLIT CALL) ----------
 st.set_page_config(
@@ -123,13 +123,13 @@ def index_library():
 
 # ---------- NEW: HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
-    """Extract plain text from a PDF file."""
-    reader = PdfReader(uploaded_file)
+    """Extract plain text from a PDF file using pdfplumber."""
     all_text = []
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            all_text.append(page_text)
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                all_text.append(page_text)
     return "\n".join(all_text)
 
 def extract_text_from_docx_file(uploaded_file) -> str:
