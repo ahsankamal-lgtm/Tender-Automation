@@ -12,12 +12,12 @@ except ImportError:
     pdfplumber = None
     PDF_SUPPORT = False
 
-# Try to import OpenAI client (for API integration)
+# Try to import openai, but don't crash if it's not installed
 try:
-    from openai import OpenAI
+    import openai
     OPENAI_AVAILABLE = True
 except ImportError:
-    OpenAI = None
+    openai = None
     OPENAI_AVAILABLE = False
 
 import sys
@@ -169,33 +169,51 @@ def get_relevant_library_entries(clause_text: str, top_k: int = 5):
     top_entries = [e for score, e in scored[:top_k]]
     return top_entries
 
-# ---------- OPENAI CLIENT HELPER ----------
-def get_openai_client():
+# ---------- OPENAI HELPERS ----------
+def get_openai_api_key():
     """
-    Safely create an OpenAI client using Streamlit secrets.
-    Expects OPENAI_API_KEY in .streamlit/secrets.toml or cloud secrets.
+    Read API key from Streamlit secrets.
+    Supports:
+      OPENAI_API_KEY = "sk-..."
+    or:
+      [openai]
+      api_key = "sk-..."
     """
-    if not OPENAI_AVAILABLE:
-        st.error("❌ OpenAI Python client is not installed. Add 'openai' to requirements.txt.")
-        return None
-
-    # Try both flat and nested styles just in case
     api_key = st.secrets.get("OPENAI_API_KEY")
     if not api_key and "openai" in st.secrets:
-        # If user prefers [openai] section in secrets
         api_key = st.secrets["openai"].get("api_key")
 
     if not api_key:
         st.error("❌ OPENAI_API_KEY not found in secrets. Please add it in Streamlit Cloud settings.")
         return None
+    return api_key
 
-    try:
-        client = OpenAI(api_key=api_key)
-    except Exception as e:
-        st.error(f"❌ Failed to create OpenAI client: {e}")
+
+def generate_openai_response(prompt_text: str):
+    """
+    Call OpenAI ChatCompletion and return the response text.
+    Uses openai.ChatCompletion.create so it works with older SDKs.
+    """
+    if not OPENAI_AVAILABLE or openai is None:
+        st.error("❌ OpenAI Python client is not installed. Check requirements.txt for 'openai'.")
         return None
 
-    return client
+    api_key = get_openai_api_key()
+    if api_key is None:
+        return None
+
+    openai.api_key = api_key
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4.1-mini",   # adjust if you want another model
+            messages=[{"role": "user", "content": prompt_text}],
+            temperature=0.2,
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        st.error(f"❌ OpenAI API call failed: {e}")
+        return None
 
 # ---------- HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
@@ -484,8 +502,10 @@ Clause number: {selected_clause['clause_no']}
 Clause text:
 \"\"\"{selected_clause['clause_text']}\"\"\"
 
+
 Wavetec Library Context:
 \"\"\"{compiled_context}\"\"\"
+
 
 TASK:
 1. Write a detailed, structured, bid-winning response to this clause from Wavetec's perspective.
@@ -509,27 +529,14 @@ Return the answer in markdown format.
                 height=300
             )
 
-            # --- NEW: Direct OpenAI API call button ---
+            # --- Direct OpenAI API call button ---
             if st.button("🤖 Generate with OpenAI"):
-                client = get_openai_client()
-                if client is not None:
-                    with st.spinner("Calling OpenAI to generate the response..."):
-                        try:
-                            response = client.chat.completions.create(
-                                model="gpt-4.1-mini",  # you can change model here if you like
-                                messages=[
-                                    {
-                                        "role": "user",
-                                        "content": prompt_text
-                                    }
-                                ],
-                                temperature=0.2,
-                            )
-                            answer = response.choices[0].message.content
-                            st.markdown("### ✅ Generated Response")
-                            st.markdown(answer)
-                        except Exception as e:
-                            st.error(f"❌ OpenAI API call failed: {e}")
+                with st.spinner("Calling OpenAI to generate the response..."):
+                    answer = generate_openai_response(prompt_text)
+
+                if answer:
+                    st.markdown("### ✅ Generated Response")
+                    st.markdown(answer)
 
             st.info("You can either copy the prompt above or use the '🤖 Generate with OpenAI' button for one-click generation.")
 
