@@ -12,6 +12,14 @@ except ImportError:
     pdfplumber = None
     PDF_SUPPORT = False
 
+# Try to import OpenAI client (for API integration)
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_AVAILABLE = False
+
 import sys
 st.sidebar.write("Python version:", sys.version)
 st.sidebar.write("PDF_SUPPORT flag:", PDF_SUPPORT)
@@ -160,6 +168,34 @@ def get_relevant_library_entries(clause_text: str, top_k: int = 5):
     scored.sort(key=lambda x: x[0], reverse=True)
     top_entries = [e for score, e in scored[:top_k]]
     return top_entries
+
+# ---------- OPENAI CLIENT HELPER ----------
+def get_openai_client():
+    """
+    Safely create an OpenAI client using Streamlit secrets.
+    Expects OPENAI_API_KEY in .streamlit/secrets.toml or cloud secrets.
+    """
+    if not OPENAI_AVAILABLE:
+        st.error("❌ OpenAI Python client is not installed. Add 'openai' to requirements.txt.")
+        return None
+
+    # Try both flat and nested styles just in case
+    api_key = st.secrets.get("OPENAI_API_KEY")
+    if not api_key and "openai" in st.secrets:
+        # If user prefers [openai] section in secrets
+        api_key = st.secrets["openai"].get("api_key")
+
+    if not api_key:
+        st.error("❌ OPENAI_API_KEY not found in secrets. Please add it in Streamlit Cloud settings.")
+        return None
+
+    try:
+        client = OpenAI(api_key=api_key)
+    except Exception as e:
+        st.error(f"❌ Failed to create OpenAI client: {e}")
+        return None
+
+    return client
 
 # ---------- HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
@@ -381,7 +417,9 @@ elif page == "📝 Generate Responses":
            - Extracted clauses on the **"📄 Upload Tender & Extract Clauses"** page.
         2. Select a clause from the dropdown.
         3. The app will find the most relevant library entries (simple keyword match for now).
-        4. It will prepare a **ready-to-copy prompt** that you can paste into ChatGPT or another LLM.
+        4. You can:
+           - Copy the prepared prompt into ChatGPT **or**
+           - Click **"🤖 Generate with OpenAI"** to call the API directly.
         """
     )
 
@@ -437,7 +475,7 @@ elif page == "📝 Generate Responses":
 
             compiled_context = "\n".join(context_blocks)
 
-            # Prepare a ready-made prompt for ChatGPT (manual copy for now)
+            # Prepare a ready-made prompt for ChatGPT / API
             prompt_text = f"""You are the Wavetec RFP Response Engine.
 
 Use ONLY the library context below to answer the clause. Do NOT invent facts that are not supported by the context.
@@ -464,14 +502,36 @@ TASK:
 Return the answer in markdown format.
 """
 
-            st.markdown("### ✍️ Prepared Prompt (copy & paste into ChatGPT)")
+            st.markdown("### ✍️ Prepared Prompt (you can still copy & paste if needed)")
             st.text_area(
                 "Prompt for ChatGPT / LLM",
                 value=prompt_text,
-                height=400
+                height=300
             )
 
-            st.info("You can copy the prompt above and paste it into ChatGPT to generate the full Wavetec response. Later we can wire this directly to the OpenAI API for one-click automation.")
+            # --- NEW: Direct OpenAI API call button ---
+            if st.button("🤖 Generate with OpenAI"):
+                client = get_openai_client()
+                if client is not None:
+                    with st.spinner("Calling OpenAI to generate the response..."):
+                        try:
+                            response = client.chat.completions.create(
+                                model="gpt-4.1-mini",  # you can change model here if you like
+                                messages=[
+                                    {
+                                        "role": "user",
+                                        "content": prompt_text
+                                    }
+                                ],
+                                temperature=0.2,
+                            )
+                            answer = response.choices[0].message.content
+                            st.markdown("### ✅ Generated Response")
+                            st.markdown(answer)
+                        except Exception as e:
+                            st.error(f"❌ OpenAI API call failed: {e}")
+
+            st.info("You can either copy the prompt above or use the '🤖 Generate with OpenAI' button for one-click generation.")
 
 # ---------- PAGE: VIEW DOCUMENTS (EXISTING BEHAVIOUR) ----------
 elif page == "📖 View Documents":
