@@ -1,9 +1,16 @@
 import streamlit as st
 from pathlib import Path
 from docx import Document  # to read Word (.docx) files
-import pdfplumber          # NEW: use pdfplumber for reading PDF tenders
-import re                  # clause regex
-import pandas as pd        # displaying clause table
+import re                    # clause regex
+import pandas as pd          # displaying clause table
+
+# Try to import pdfplumber, but don't crash if it's not installed
+try:
+    import pdfplumber        # for reading PDF tenders
+    PDF_SUPPORT = True
+except ImportError:
+    pdfplumber = None
+    PDF_SUPPORT = False
 
 # ---------- BASIC PAGE SETTINGS (MUST BE FIRST STREAMLIT CALL) ----------
 st.set_page_config(
@@ -124,6 +131,9 @@ def index_library():
 # ---------- NEW: HELPERS FOR TENDER UPLOAD / CLAUSE EXTRACTION ----------
 def extract_text_from_pdf(uploaded_file) -> str:
     """Extract plain text from a PDF file using pdfplumber."""
+    if not PDF_SUPPORT or pdfplumber is None:
+        st.error("PDF support is not available on this deployment. Please upload a .docx tender instead.")
+        return ""
     all_text = []
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
@@ -228,7 +238,8 @@ elif page == "📄 Upload Tender & Extract Clauses":
 
     st.markdown(
         """
-        Upload a tender file (PDF or Word).  
+        Upload a tender file.
+
         The app will:
         - Extract the full text
         - Detect clause numbers like `3.14`, `3.15`, `4.2.1` at the start of lines
@@ -237,10 +248,18 @@ elif page == "📄 Upload Tender & Extract Clauses":
         """
     )
 
+    # Allowed file types depend on whether PDF support is available
+    if PDF_SUPPORT:
+        allowed_types = ["pdf", "docx"]
+        st.info("📎 You can upload PDF or DOCX tenders.")
+    else:
+        allowed_types = ["docx"]
+        st.warning("⚠️ PDF support is not available on this deployment. Please upload a DOCX tender.")
+
     uploaded_file = st.file_uploader(
         "Upload Tender Document",
-        type=["pdf", "docx"],
-        help="Accepted formats: PDF (.pdf) and Word (.docx)"
+        type=allowed_types,
+        help="Accepted formats: " + ", ".join(f".{ext}" for ext in allowed_types)
     )
 
     if uploaded_file is not None:
@@ -249,7 +268,7 @@ elif page == "📄 Upload Tender & Extract Clauses":
         if st.button("🔍 Extract Clauses"):
             with st.spinner("Extracting text and detecting clauses..."):
                 # Step 1: Extract raw text
-                if uploaded_file.type == "application/pdf" or uploaded_file.name.lower().endswith(".pdf"):
+                if uploaded_file.name.lower().endswith(".pdf"):
                     raw_text = extract_text_from_pdf(uploaded_file)
                 else:
                     raw_text = extract_text_from_docx_file(uploaded_file)
