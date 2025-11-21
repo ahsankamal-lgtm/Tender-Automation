@@ -12,6 +12,11 @@ except ImportError:
     pdfplumber = None
     PDF_SUPPORT = False
 
+import sys
+st.sidebar.write("Python version:", sys.version)
+st.sidebar.write("PDF_SUPPORT flag:", PDF_SUPPORT)
+st.sidebar.write("Installed libs file source: requirements.txt at repo root")
+
 # ---------- BASIC PAGE SETTINGS (MUST BE FIRST STREAMLIT CALL) ----------
 st.set_page_config(
     page_title="Wavetec Tender Library",
